@@ -106,11 +106,9 @@ resource "aws_lb_listener" "http" {
 }
 
 # ECR Repository
-resource "aws_ecr_repository" "main" {
+data "aws_ecr_repository" "main" {
   name = "aman-strapi-repo"
-  tags = { Name = "aman-strapi-repo" }
 }
-
 # ECS Cluster
 resource "aws_ecs_cluster" "main" {
   name = "aman-strapi-cluster"
@@ -131,11 +129,8 @@ locals {
 data "aws_caller_identity" "current" {}
 
 # CloudWatch Log Group
-resource "aws_cloudwatch_log_group" "ecs" {
-  name              = "/ecs/aman-strapi"
-  retention_in_days = 1
-
-  tags = { Name = "aman-strapi-logs" }
+data "aws_cloudwatch_log_group" "ecs" {
+  name = "/ecs/aman-strapi"
 }
 
 # ECS Task Definition
