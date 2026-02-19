@@ -105,10 +105,11 @@ resource "aws_lb_listener" "http" {
   }
 }
 
-# ECR Repository
+# ECR Repository (data source)
 data "aws_ecr_repository" "main" {
   name = "aman-strapi-repo"
 }
+
 # ECS Cluster
 resource "aws_ecs_cluster" "main" {
   name = "aman-strapi-cluster"
@@ -128,7 +129,7 @@ locals {
 
 data "aws_caller_identity" "current" {}
 
-# CloudWatch Log Group
+# CloudWatch Log Group (data source)
 data "aws_cloudwatch_log_group" "ecs" {
   name = "/ecs/aman-strapi"
 }
@@ -145,7 +146,7 @@ resource "aws_ecs_task_definition" "main" {
   container_definitions = jsonencode([
     {
       name  = "strapi"
-      image = "${aws_ecr_repository.main.repository_url}:latest"
+      image = "${data.aws_ecr_repository.main.repository_url}:latest"  # ← FIXED: data. prefix added
       essential = true
       
       portMappings = [{
@@ -165,7 +166,7 @@ resource "aws_ecs_task_definition" "main" {
       logConfiguration = {
         logDriver = "awslogs"
         options = {
-          "awslogs-group"         = aws_cloudwatch_log_group.ecs.name
+          "awslogs-group"         = data.aws_cloudwatch_log_group.ecs.name  # ← FIXED: data. prefix added
           "awslogs-region"        = var.aws_region
           "awslogs-stream-prefix" = "ecs"
         }
