@@ -107,8 +107,11 @@ locals {
 data "aws_caller_identity" "current" {}
 
 # CloudWatch Log Group (data source)
-data "aws_cloudwatch_log_group" "ecs" {
-  name = "/ecs/aman-strapi"
+resource "aws_cloudwatch_log_group" "ecs" {
+  name              = "/ecs/aman-strapi"
+  retention_in_days = 1
+
+  tags = { Name = "aman-strapi-logs" }
 }
 
 # ECS Task Definition
@@ -143,7 +146,7 @@ resource "aws_ecs_task_definition" "main" {
       logConfiguration = {
         logDriver = "awslogs"
         options = {
-          "awslogs-group"         = data.aws_cloudwatch_log_group.ecs.name
+          "awslogs-group" = aws_cloudwatch_log_group.ecs.name
           "awslogs-region"        = var.aws_region
           "awslogs-stream-prefix" = "ecs"
         }
