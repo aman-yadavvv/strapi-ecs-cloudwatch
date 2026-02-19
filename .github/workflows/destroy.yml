@@ -1,0 +1,115 @@
+name: Destroy Infrastructure
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: 'Type "destroy" to confirm'
+        required: true
+        default: ''
+
+env:
+  AWS_REGION: us-east-1
+  TF_WORKING_DIR: ./terraform
+
+jobs:
+  destroy:
+    name: Destroy All Resources
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Confirmation Check
+        run: |
+          if [ "${{ github.event.inputs.confirmation }}" != "destroy" ]; then
+            echo "❌ Confirmation failed. Type 'destroy' to proceed."
+            exit 1
+          fi
+          echo "✅ Confirmation accepted. Proceeding with destruction..."
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.6.0"
+
+      - name: Terraform Init
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: terraform init
+
+      # Pre-cleanup: Scale down ECS
+      - name: Scale Down ECS Service
+        continue-on-error: true
+        run: |
+          echo "Scaling down ECS service..."
+          aws ecs update-service \
+            --cluster strapi-cluster \
+            --service strapi-service \
+            --desired-count 0 2>/dev/null || true
+          
+          # Wait for tasks to stop
+          sleep 30
+
+      # Pre-cleanup: Empty ECR
+      - name: Empty ECR Repository
+        continue-on-error: true
+        run: |
+          echo "Emptying ECR repository..."
+          
+          # Get image digests
+          IMAGES=$(aws ecr describe-images \
+            --repository-name strapi \
+            --query 'imageDetails[*].imageDigest' \
+            --output text 2>/dev/null || true)
+          
+          if [ ! -z "$IMAGES" ]; then
+            # Build JSON for batch-delete
+            IMAGE_IDS=$(echo $IMAGES | tr ' ' '\n' | sed 's/^/{"imageDigest":"/;s/$/"}/' | paste -sd ',' -)
+            aws ecr batch-delete-image \
+              --repository-name strapi \
+              --image-ids "[$IMAGE_IDS]" 2>/dev/null || true
+          fi
+
+      # Pre-cleanup: Deregister task definitions
+      - name: Deregister Task Definitions
+        continue-on-error: true
+        run: |
+          echo "Deregistering task definitions..."
+          ARNS=$(aws ecs list-task-definitions \
+            --family-prefix strapi-task \
+            --status ACTIVE \
+            --query 'taskDefinitionArns[]' \
+            --output text 2>/dev/null || true)
+          
+          for arn in $ARNS; do
+            aws ecs deregister-task-definition --task-definition $arn 2>/dev/null || true
+          done
+
+      - name: Terraform Destroy
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          echo "⚠️ DESTROYING ALL RESOURCES..."
+          terraform destroy -auto-approve
+
+      - name: Cleanup Summary
+        run: |
+          echo "✅ DESTRUCTION COMPLETE!"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🗑️  All resources destroyed:"
+          echo "   • ECS Cluster & Services"
+          echo "   • Task Definitions"
+          echo "   • Application Load Balancer"
+          echo "   • ECR Repository (emptied)"
+          echo "   • VPC & Networking"
+          echo "   • CloudWatch Logs & Dashboard"
+          echo "   • IAM Roles"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "💰 Billing stopped for these resources"

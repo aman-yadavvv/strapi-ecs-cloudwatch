@@ -1,0 +1,147 @@
+name: CD - Deploy to AWS
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  AWS_REGION: us-east-1
+  TF_WORKING_DIR: ./terraform
+
+jobs:
+  # Job 1: Deploy Infrastructure
+  deploy-infra:
+    name: Deploy Infrastructure
+    runs-on: ubuntu-latest
+    outputs:
+      ecr_url: ${{ steps.outputs.outputs.ecr_url }}
+      app_url: ${{ steps.outputs.outputs.app_url }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.6.0"
+
+      - name: Terraform Init
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: terraform init
+
+      - name: Terraform Plan
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: terraform plan -out=tfplan
+
+      - name: Terraform Apply
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: terraform apply -auto-approve tfplan
+
+      - name: Export Outputs
+        id: outputs
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          echo "ecr_url=$(terraform output -raw ecr_repository_url)" >> $GITHUB_OUTPUT
+          echo "app_url=$(terraform output -raw app_url)" >> $GITHUB_OUTPUT
+
+  # Job 2: Build and Push Image
+  build-push:
+    name: Build & Push Image
+    runs-on: ubuntu-latest
+    needs: deploy-infra
+    outputs:
+      image_uri: ${{ steps.build.outputs.image_uri }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and Push
+        id: build
+        env:
+          ECR_URL: ${{ needs.deploy-infra.outputs.ecr_url }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          IMAGE_URI="$ECR_URL:$IMAGE_TAG"
+          
+          docker build \
+            -t $IMAGE_URI \
+            -t $ECR_URL:latest \
+            ./strapi
+          
+          docker push $IMAGE_URI
+          docker push $ECR_URL:latest
+          
+          echo "image_uri=$IMAGE_URI" >> $GITHUB_OUTPUT
+          echo "Built and pushed: $IMAGE_URI"
+
+  # Job 3: Deploy to ECS
+  deploy-app:
+    name: Deploy Application
+    runs-on: ubuntu-latest
+    needs: [deploy-infra, build-push]
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Download Task Definition
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition strapi-task \
+            --query taskDefinition > task-def.json
+
+      - name: Update Task Definition
+        id: task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-def.json
+          container-name: strapi
+          image: ${{ needs.build-push.outputs.image_uri }}
+
+      - name: Deploy to ECS
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v1
+        with:
+          task-definition: ${{ steps.task-def.outputs.task-definition }}
+          service: strapi-service
+          cluster: strapi-cluster
+          wait-for-service-stability: true
+
+      - name: Deployment Summary
+        env:
+          APP_URL: ${{ needs.deploy-infra.outputs.app_url }}
+          IMAGE: ${{ needs.build-push.outputs.image_uri }}
+        run: |
+          echo "🚀 DEPLOYMENT SUCCESSFUL!"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🌐 App URL: $APP_URL"
+          echo "🐳 Image: $IMAGE"
+          echo "📊 Dashboard: https://${{ env.AWS_REGION }}.console.aws.amazon.com/cloudwatch/home?region=${{ env.AWS_REGION }}#dashboards:name=strapi-dashboard"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
