@@ -11,48 +11,22 @@ provider "aws" {
   region = var.aws_region
 }
 
-# VPC and Networking (Simplified - 1 AZ to save costs)
-resource "aws_vpc" "main" {
-  cidr_block           = "10.0.0.0/16"
-  enable_dns_hostnames = true
-
-  tags = { Name = "strapi-vpc" }
+# Use default VPC
+data "aws_vpc" "default" {
+  default = true
 }
 
-resource "aws_internet_gateway" "main" {
-  vpc_id = aws_vpc.main.id
-  tags   = { Name = "strapi-igw" }
-}
-
-resource "aws_subnet" "public" {
-  vpc_id                  = aws_vpc.main.id
-  cidr_block              = "10.0.1.0/24"
-  availability_zone       = "${var.aws_region}a"
-  map_public_ip_on_launch = true
-
-  tags = { Name = "strapi-public" }
-}
-
-resource "aws_route_table" "public" {
-  vpc_id = aws_vpc.main.id
-
-  route {
-    cidr_block = "0.0.0.0/0"
-    gateway_id = aws_internet_gateway.main.id
+data "aws_subnets" "default" {
+  filter {
+    name   = "vpc-id"
+    values = [data.aws_vpc.default.id]
   }
-
-  tags = { Name = "strapi-rt" }
-}
-
-resource "aws_route_table_association" "public" {
-  subnet_id      = aws_subnet.public.id
-  route_table_id = aws_route_table.public.id
 }
 
 # Security Groups
 resource "aws_security_group" "alb" {
-  name_prefix = "strapi-alb-"
-  vpc_id      = aws_vpc.main.id
+  name_prefix = "aman-strapi-alb-"
+  vpc_id      = data.aws_vpc.default.id
 
   ingress {
     from_port   = 80
@@ -68,12 +42,12 @@ resource "aws_security_group" "alb" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  tags = { Name = "strapi-alb-sg" }
+  tags = { Name = "aman-strapi-alb-sg" }
 }
 
 resource "aws_security_group" "ecs" {
-  name_prefix = "strapi-ecs-"
-  vpc_id      = aws_vpc.main.id
+  name_prefix = "aman-strapi-ecs-"
+  vpc_id      = data.aws_vpc.default.id
 
   ingress {
     from_port       = 1337
@@ -89,25 +63,25 @@ resource "aws_security_group" "ecs" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  tags = { Name = "strapi-ecs-sg" }
+  tags = { Name = "aman-strapi-ecs-sg" }
 }
 
 # Application Load Balancer
 resource "aws_lb" "main" {
-  name               = "strapi-alb"
+  name               = "aman-strapi-alb"
   internal           = false
   load_balancer_type = "application"
   security_groups    = [aws_security_group.alb.id]
-  subnets            = [aws_subnet.public.id]
+  subnets            = slice(data.aws_subnets.default.ids, 0, 2)
 
-  tags = { Name = "strapi-alb" }
+  tags = { Name = "aman-strapi-alb" }
 }
 
 resource "aws_lb_target_group" "main" {
-  name        = "strapi-tg"
+  name        = "aman-strapi-tg"
   port        = 1337
   protocol    = "HTTP"
-  vpc_id      = aws_vpc.main.id
+  vpc_id      = data.aws_vpc.default.id
   target_type = "ip"
 
   health_check {
@@ -117,7 +91,7 @@ resource "aws_lb_target_group" "main" {
     matcher  = "200-299"
   }
 
-  tags = { Name = "strapi-tg" }
+  tags = { Name = "aman-strapi-tg" }
 }
 
 resource "aws_lb_listener" "http" {
@@ -149,29 +123,15 @@ resource "aws_ecs_cluster" "main" {
   tags = { Name = "aman-strapi-cluster" }
 }
 
-# IAM Roles
-resource "aws_iam_role" "ecs_execution" {
-  name = "aman-strapi-ecs-execution-role"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Action = "sts:AssumeRole"
-      Effect = "Allow"
-      Principal = { Service = "ecs-tasks.amazonaws.com" }
-    }]
-  })
-}
-
-resource "aws_iam_role_policy_attachment" "ecs_execution" {
-  role       = aws_iam_role.ecs_execution.name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+# Use existing IAM role
+data "aws_iam_role" "ecs_execution" {
+  name = "ecsTaskExecutionRole"
 }
 
 # CloudWatch Log Group
 resource "aws_cloudwatch_log_group" "ecs" {
   name              = "/ecs/aman-strapi"
-  retention_in_days = 1  # Short retention for practice (save costs)
+  retention_in_days = 1
 
   tags = { Name = "aman-strapi-logs" }
 }
@@ -181,9 +141,9 @@ resource "aws_ecs_task_definition" "main" {
   family                   = "aman-strapi-task"
   network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
-  cpu                      = "256"   # Minimum for practice
-  memory                   = "512"   # Minimum for practice
-  execution_role_arn       = aws_iam_role.ecs_execution.arn
+  cpu                      = "256"
+  memory                   = "512"
+  execution_role_arn       = data.aws_iam_role.ecs_execution.arn
 
   container_definitions = jsonencode([
     {
@@ -198,7 +158,7 @@ resource "aws_ecs_task_definition" "main" {
 
       environment = [
         { name = "NODE_ENV", value = "production" },
-        { name = "DATABASE_CLIENT", value = "postgres" },  # SQLite for simplicity
+        { name = "DATABASE_CLIENT", value = "sqlite" },
         { name = "JWT_SECRET", value = "xjuQ7MTqUNi7BSlYPCq9pfxJJ0Tz0QadRind02+B6VY=" },
         { name = "ADMIN_JWT_SECRET", value = "YQDyUiLbVyblOWaSBYAdUQViF/CPrBZ7AKIeHXecdp0=" },
         { name = "APP_KEYS", value = "X8nSeDDOVFaiMKxGM2gyhg==,OQ8x061MRmwtnjDiAYfrOQ==,+6KZ/BQ1W6mVgzeh2zplFw==,0Q3X3lREGzouh4ebMhONKg==" },
@@ -216,19 +176,19 @@ resource "aws_ecs_task_definition" "main" {
     }
   ])
 
-  tags = { Name = "strapi-task" }
+  tags = { Name = "aman-strapi-task" }
 }
 
 # ECS Service
 resource "aws_ecs_service" "main" {
-  name            = "strapi-service"
+  name            = "aman-strapi-service"
   cluster         = aws_ecs_cluster.main.id
   task_definition = aws_ecs_task_definition.main.arn
-  desired_count   = 1  # Single task for practice
+  desired_count   = 1
   launch_type     = "FARGATE"
 
   network_configuration {
-    subnets          = [aws_subnet.public.id]
+    subnets          = slice(data.aws_subnets.default.ids, 0, 2)
     security_groups  = [aws_security_group.ecs.id]
     assign_public_ip = true
   }
@@ -242,9 +202,9 @@ resource "aws_ecs_service" "main" {
   depends_on = [aws_lb_listener.http]
 }
 
-# CloudWatch Dashboard (Simple)
+# CloudWatch Dashboard
 resource "aws_cloudwatch_dashboard" "main" {
-  dashboard_name = "strapi-dashboard"
+  dashboard_name = "aman-strapi-dashboard"
 
   dashboard_body = jsonencode({
     widgets = [
@@ -300,7 +260,7 @@ resource "aws_cloudwatch_dashboard" "main" {
         width  = 12
         height = 6
         properties = {
-          query   = "SOURCE '/ecs/strapi' | fields @timestamp, @message | sort @timestamp desc | limit 20"
+          query   = "SOURCE '/ecs/aman-strapi' | fields @timestamp, @message | sort @timestamp desc | limit 20"
           region  = var.aws_region
           title   = "Recent Logs"
         }
