@@ -87,7 +87,7 @@ jobs:
           docker build \
             -t $IMAGE_URI \
             -t $ECR_URL:latest \
-            ./strapi
+            ./app
           
           docker push $IMAGE_URI
           docker push $ECR_URL:latest
