@@ -51,7 +51,7 @@ jobs:
       - name: Build Docker Image (Test Only)
         uses: docker/build-push-action@v5
         with:
-          context: ./strapi
+          context: ./app
           push: false
           tags: strapi:test-build
           cache-from: type=gha
