@@ -51,8 +51,8 @@ jobs:
         run: |
           echo "Scaling down ECS service..."
           aws ecs update-service \
-            --cluster strapi-cluster \
-            --service strapi-service \
+            --cluster aman-strapi-cluster \
+            --service aman-strapi-service \
             --desired-count 0 2>/dev/null || true
           
           # Wait for tasks to stop
@@ -66,7 +66,7 @@ jobs:
           
           # Get image digests
           IMAGES=$(aws ecr describe-images \
-            --repository-name strapi \
+            --repository-name aman-strapi-repo \
             --query 'imageDetails[*].imageDigest' \
             --output text 2>/dev/null || true)
           
@@ -74,7 +74,7 @@ jobs:
             # Build JSON for batch-delete
             IMAGE_IDS=$(echo $IMAGES | tr ' ' '\n' | sed 's/^/{"imageDigest":"/;s/$/"}/' | paste -sd ',' -)
             aws ecr batch-delete-image \
-              --repository-name strapi \
+              --repository-name aman-strapi-repo \
               --image-ids "[$IMAGE_IDS]" 2>/dev/null || true
           fi
 
@@ -84,7 +84,7 @@ jobs:
         run: |
           echo "Deregistering task definitions..."
           ARNS=$(aws ecs list-task-definitions \
-            --family-prefix strapi-task \
+            --family-prefix aman-strapi-task \
             --status ACTIVE \
             --query 'taskDefinitionArns[]' \
             --output text 2>/dev/null || true)
