@@ -10,7 +10,7 @@ output "ecr_repository_url" {
 
 output "cloudwatch_log_group" {
   description = "CloudWatch log group"
-  value       = data.aws_cloudwatch_log_group.ecs.name
+  value = aws_cloudwatch_log_group.ecs.name
 }
 
 output "cloudwatch_dashboard" {
