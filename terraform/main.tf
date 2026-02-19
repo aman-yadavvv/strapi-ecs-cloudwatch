@@ -66,43 +66,20 @@ resource "aws_security_group" "ecs" {
   tags = { Name = "aman-strapi-ecs-sg" }
 }
 
-# Application Load Balancer
-resource "aws_lb" "main" {
-  name               = "aman-strapi-alb"
-  internal           = false
-  load_balancer_type = "application"
-  security_groups    = [aws_security_group.alb.id]
-  subnets            = slice(data.aws_subnets.default.ids, 0, 2)
-
-  tags = { Name = "aman-strapi-alb" }
+# Application Load Balancer (data source)
+data "aws_lb" "main" {
+  name = "aman-strapi-alb"
 }
 
-resource "aws_lb_target_group" "main" {
-  name        = "aman-strapi-tg"
-  port        = 1337
-  protocol    = "HTTP"
-  vpc_id      = data.aws_vpc.default.id
-  target_type = "ip"
-
-  health_check {
-    path     = "/"
-    interval = 30
-    timeout  = 5
-    matcher  = "200-299"
-  }
-
-  tags = { Name = "aman-strapi-tg" }
+# Target Group (data source)
+data "aws_lb_target_group" "main" {
+  name = "aman-strapi-tg"
 }
 
-resource "aws_lb_listener" "http" {
-  load_balancer_arn = aws_lb.main.arn
-  port              = "80"
-  protocol          = "HTTP"
-
-  default_action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.main.arn
-  }
+# Listener (data source)
+data "aws_lb_listener" "http" {
+  load_balancer_arn = data.aws_lb.main.arn
+  port              = 80
 }
 
 # ECR Repository (data source)
@@ -146,7 +123,7 @@ resource "aws_ecs_task_definition" "main" {
   container_definitions = jsonencode([
     {
       name  = "strapi"
-      image = "${data.aws_ecr_repository.main.repository_url}:latest"  # ← FIXED: data. prefix added
+      image = "${data.aws_ecr_repository.main.repository_url}:latest"
       essential = true
       
       portMappings = [{
@@ -166,7 +143,7 @@ resource "aws_ecs_task_definition" "main" {
       logConfiguration = {
         logDriver = "awslogs"
         options = {
-          "awslogs-group"         = data.aws_cloudwatch_log_group.ecs.name  # ← FIXED: data. prefix added
+          "awslogs-group"         = data.aws_cloudwatch_log_group.ecs.name
           "awslogs-region"        = var.aws_region
           "awslogs-stream-prefix" = "ecs"
         }
@@ -192,12 +169,10 @@ resource "aws_ecs_service" "main" {
   }
 
   load_balancer {
-    target_group_arn = aws_lb_target_group.main.arn
+    target_group_arn = data.aws_lb_target_group.main.arn
     container_name   = "strapi"
     container_port   = 1337
   }
-
-  depends_on = [aws_lb_listener.http]
 }
 
 # CloudWatch Dashboard
