@@ -1,6 +1,6 @@
 output "app_url" {
   description = "URL to access Strapi"
-  value       = "http://${aws_lb.main.dns_name}"
+  value       = "http://${data.aws_lb.main.dns_name}"
 }
 
 output "ecr_repository_url" {
