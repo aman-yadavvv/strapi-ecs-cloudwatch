@@ -38,13 +38,16 @@ jobs:
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: terraform init
 
+      - name: Import existing ECS resources
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        continue-on-error: true
+        run: |
+          terraform import aws_ecs_cluster.main aman-strapi-cluster 2>/dev/null || true
+          terraform import aws_ecs_service.main aman-strapi-cluster/aman-strapi-service 2>/dev/null || true
+
       - name: Terraform Plan
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: terraform plan -out=tfplan
-
-      - name: Terraform Apply
-        working-directory: ${{ env.TF_WORKING_DIR }}
-        run: terraform apply -auto-approve tfplan
 
       - name: Export Outputs
         id: outputs
