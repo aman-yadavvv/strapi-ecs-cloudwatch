@@ -124,9 +124,11 @@ resource "aws_ecs_cluster" "main" {
 }
 
 # Use existing IAM role
-data "aws_iam_role" "ecs_execution" {
-  name = "ecsTaskExecutionRole"
+locals {
+  ecs_execution_role_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/ecsTaskExecutionRole"
 }
+
+data "aws_caller_identity" "current" {}
 
 # CloudWatch Log Group
 resource "aws_cloudwatch_log_group" "ecs" {
@@ -143,7 +145,7 @@ resource "aws_ecs_task_definition" "main" {
   requires_compatibilities = ["FARGATE"]
   cpu                      = "256"
   memory                   = "512"
-  execution_role_arn       = data.aws_iam_role.ecs_execution.arn
+  execution_role_arn       = local.ecs_execution_role_arn
 
   container_definitions = jsonencode([
     {
