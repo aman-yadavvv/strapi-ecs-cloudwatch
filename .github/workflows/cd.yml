@@ -133,8 +133,8 @@ jobs:
         uses: aws-actions/amazon-ecs-deploy-task-definition@v1
         with:
           task-definition: ${{ steps.task-def.outputs.task-definition }}
-          service: strapi-service
-          cluster: strapi-cluster
+          service: aman-strapi-service
+          cluster: aman-strapi-cluster
           wait-for-service-stability: true
 
       - name: Deployment Summary
